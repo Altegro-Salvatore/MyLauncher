@@ -13,6 +13,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -206,14 +207,12 @@ fun ScreenTwo() {
                     val savedBaseline = prefs.getInt("step_baseline", -1)
 
                     if (savedDate != todayDate || savedBaseline == -1 || totalSensorSteps < savedBaseline) {
-                        // Новый день или телефон перезагрузился (датчик сбросился на 0)
                         prefs.edit()
                             .putString("step_date", todayDate)
                             .putInt("step_baseline", totalSensorSteps)
                             .apply()
                         dailySteps = 0
                     } else {
-                        // Считаем разницу между текущим значением и началом дня
                         dailySteps = totalSensorSteps - savedBaseline
                     }
                 }
@@ -236,11 +235,32 @@ fun ScreenTwo() {
             Text("+ Добавить\nАватар", color = Color.Gray, textAlign = TextAlign.Center)
         }
         Spacer(modifier = Modifier.width(16.dp))
+        
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             StatBox("HP (Пульс)", "99")
             StatBox("MP (Калории)", "10")
             StatBox("Отдых", "6ч 12мин")
-            StatBox("Шаги за сегодня", if (hasActivityPermission && stepSensor != null) "$dailySteps" else "Нет доступа")
+            
+            // Блок с шагами
+            Column {
+                Text("Шаги за сегодня", color = Color.LightGray, fontSize = 12.sp)
+                if (hasActivityPermission && stepSensor != null) {
+                    Text("$dailySteps", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                } else {
+                    // Если нет разрешения - показываем кнопку, которая ведет в настройки
+                    Button(
+                        onClick = {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            intent.data = Uri.parse("package:" + context.packageName)
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.padding(top = 4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+                    ) {
+                        Text("Разрешить", color = Color.White, fontSize = 14.sp)
+                    }
+                }
+            }
         }
     }
 }
