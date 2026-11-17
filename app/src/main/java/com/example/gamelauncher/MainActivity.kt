@@ -46,7 +46,8 @@ import java.util.Locale
 import java.util.UUID
 
 data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
-data class TaskItem(val id: String, val title: String, val isDone: Boolean)
+// Добавили category, чтобы понимать, к какой плашке относится задача
+data class TaskItem(val id: String, val title: String, val isDone: Boolean, val category: String)
 
 fun saveTasks(context: Context, tasks: List<TaskItem>) {
     val jsonArray = JSONArray()
@@ -55,6 +56,7 @@ fun saveTasks(context: Context, tasks: List<TaskItem>) {
         jsonObj.put("id", it.id)
         jsonObj.put("title", it.title)
         jsonObj.put("isDone", it.isDone)
+        jsonObj.put("category", it.category)
         jsonArray.put(jsonObj)
     }
     context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
@@ -69,7 +71,12 @@ fun loadTasks(context: Context): List<TaskItem> {
         val jsonArray = JSONArray(jsonStr)
         for (i in 0 until jsonArray.length()) {
             val obj = jsonArray.getJSONObject(i)
-            list.add(TaskItem(obj.getString("id"), obj.getString("title"), obj.getBoolean("isDone")))
+            list.add(TaskItem(
+                obj.getString("id"), 
+                obj.getString("title"), 
+                obj.getBoolean("isDone"),
+                obj.optString("category", "Minor") // По умолчанию в мелкие
+            ))
         }
     } catch (e: Exception) {}
     return list
@@ -77,7 +84,6 @@ fun loadTasks(context: Context): List<TaskItem> {
 
 fun hasUsageStatsPermission(context: Context): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    // Вот тут была ошибка, теперь AppOpsManager
     val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
     return mode == AppOpsManager.MODE_ALLOWED
 }
@@ -136,8 +142,11 @@ fun ScreenOne() {
     var currentTime by remember { mutableStateOf("") }
 
     var tasks by remember { mutableStateOf(loadTasks(context)) }
+    
+    // Состояния для окна добавления
     var showAddDialog by remember { mutableStateOf(false) }
     var inputTask by remember { mutableStateOf("") }
+    var currentCategory by remember { mutableStateOf("Major") } // По умолчанию глобальные
 
     if (showAddDialog) {
         AlertDialog(
@@ -154,7 +163,7 @@ fun ScreenOne() {
             confirmButton = {
                 TextButton(onClick = {
                     if (inputTask.isNotBlank()) {
-                        val newTask = TaskItem(UUID.randomUUID().toString(), inputTask, false)
+                        val newTask = TaskItem(UUID.randomUUID().toString(), inputTask, false, currentCategory)
                         tasks = tasks + newTask
                         saveTasks(context, tasks)
                     }
@@ -186,48 +195,53 @@ fun ScreenOne() {
     LaunchedEffect(Unit) { hasPermission = hasUsageStatsPermission(context) }
 
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(16.dp)) {
-        // ЛЕВАЯ КОЛОНКА - СПИСОК ЗАДАЧ
-        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                Box(
-                    modifier = Modifier.size(36.dp).background(Color.DarkGray, CircleShape)
-                        .clickable { showAddDialog = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("+", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("Глобальные", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        
+        // ЛЕВАЯ КОЛОНКА - ТРИ ПЛАШКИ
+        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            
+            // 1. ГЛОБАЛЬНЫЕ (Маленькая)
+            Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.DarkGray, RoundedCornerShape(16.dp))) {
+                QuestListCard(
+                    title = "Глобальные",
+                    category = "Major",
+                    tasks = tasks.filter { it.category == "Major" },
+                    onAddClick = { currentCategory = "Major"; showAddDialog = true },
+                    onTaskToggle = { task ->
+                        val updated = tasks.map { if (it.id == task.id) it.copy(isDone = !it.isDone) else it }
+                        tasks = updated
+                        saveTasks(context, updated)
+                    }
+                )
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(tasks) { task ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .border(2.dp, if (task.isDone) Color.Green else Color.Gray, CircleShape)
-                                .background(if (task.isDone) Color.Green else Color.Transparent, CircleShape)
-                                .clickable {
-                                    val updatedTasks = tasks.map {
-                                        if (it.id == task.id) it.copy(isDone = !it.isDone) else it
-                                    }
-                                    tasks = updatedTasks
-                                    saveTasks(context, updatedTasks)
-                                }
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = task.title,
-                            color = if (task.isDone) Color.Gray else Color.White,
-                            textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
-                            fontSize = 16.sp
-                        )
+            // 2. СРЕДНИЕ (Средняя)
+            Box(modifier = Modifier.weight(1.2f).fillMaxWidth().background(Color.Gray, RoundedCornerShape(16.dp))) {
+                QuestListCard(
+                    title = "Средние",
+                    category = "Medium",
+                    tasks = tasks.filter { it.category == "Medium" },
+                    onAddClick = { currentCategory = "Medium"; showAddDialog = true },
+                    onTaskToggle = { task ->
+                        val updated = tasks.map { if (it.id == task.id) it.copy(isDone = !it.isDone) else it }
+                        tasks = updated
+                        saveTasks(context, updated)
                     }
-                }
+                )
+            }
+
+            // 3. МЕЛКИЕ (Большая)
+            Box(modifier = Modifier.weight(2f).fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(16.dp))) {
+                QuestListCard(
+                    title = "Мелкие",
+                    category = "Minor",
+                    tasks = tasks.filter { it.category == "Minor" },
+                    onAddClick = { currentCategory = "Minor"; showAddDialog = true },
+                    onTaskToggle = { task ->
+                        val updated = tasks.map { if (it.id == task.id) it.copy(isDone = !it.isDone) else it }
+                        tasks = updated
+                        saveTasks(context, updated)
+                    }
+                )
             }
         }
         
@@ -264,6 +278,54 @@ fun ScreenOne() {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+// Отдельный компонент для красивой карточки со списком
+@Composable
+fun QuestListCard(
+    title: String,
+    category: String,
+    tasks: List<TaskItem>,
+    onAddClick: () -> Unit,
+    onTaskToggle: (TaskItem) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+        // Шапка с названием и плюсом
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            Box(
+                modifier = Modifier.size(24.dp).background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                    .clickable { onAddClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("+", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+
+        // Сам список задач
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(tasks) { task ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    // Круглый чекбокс
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .border(2.dp, if (task.isDone) Color.Green else Color.LightGray, CircleShape)
+                            .background(if (task.isDone) Color.Green else Color.Transparent, CircleShape)
+                            .clickable { onTaskToggle(task) }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = task.title,
+                        color = if (task.isDone) Color.LightGray else Color.White,
+                        textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
+                        fontSize = 13.sp
+                    )
                 }
             }
         }
