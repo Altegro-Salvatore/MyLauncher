@@ -276,6 +276,71 @@ fun ScreenOne() {
 // Второй экран оставляем без изменений
 @Composable
 fun ScreenTwo() {
-    // ... (код второго экрана остается прежним, я не буду его дублировать, чтобы не спамить)
-    // (Вставь сюда свой текущий код ScreenTwo, он не менялся)
+    val context = LocalContext.current
+    var showMannaDialog by remember { mutableStateOf(false) }
+    var inputManna by remember { mutableStateOf("") }
+    
+    val prefs = context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
+    var mannaPoints by remember { mutableStateOf(prefs.getInt("manna_points", 0)) }
+
+    if (showMannaDialog) {
+        AlertDialog(
+            onDismissRequest = { showMannaDialog = false },
+            title = { Text("Добавить калории (MP)") },
+            text = {
+                OutlinedTextField(
+                    value = inputManna,
+                    onValueChange = { if (it.all { char -> char.isDigit() }) inputManna = it },
+                    label = { Text("Сколько калорий?") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val calories = inputManna.toIntOrNull() ?: 0
+                    mannaPoints += calories
+                    prefs.edit().putInt("manna_points", mannaPoints).apply()
+                    inputManna = ""
+                    showMannaDialog = false
+                }) { Text("Добавить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMannaDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
+    Row(modifier = Modifier.fillMaxSize().background(Color(0xFF121212)).padding(16.dp)) {
+        Box(
+            modifier = Modifier.weight(1f).fillMaxHeight().background(Color.DarkGray, RoundedCornerShape(16.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("+ Добавить\nАватар", color = Color.Gray, textAlign = TextAlign.Center)
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            StatBox("HP (Пульс)", "99")
+            
+            Column(modifier = Modifier.clickable { showMannaDialog = true }) {
+                Text("MP (Калории)", color = Color.LightGray, fontSize = 12.sp)
+                Text("$mannaPoints", color = if (mannaPoints < 0) Color.Red else Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
+
+            StatBox("Отдых", "6ч 12мин")
+            
+            Column {
+                Text("Шаги за сегодня", color = Color.LightGray, fontSize = 12.sp)
+                Text("Нет доступа", color = Color.Gray, fontSize = 20.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun StatBox(title: String, value: String) {
+    Column {
+        Text(title, color = Color.LightGray, fontSize = 12.sp)
+        Text(value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    }
 }
