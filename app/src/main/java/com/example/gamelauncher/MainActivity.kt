@@ -31,8 +31,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-data class AppInfo(val name: String, val packageName: String, val icon: Drawable, val launchCount: Int)
+data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
 
 fun hasUsageStatsPermission(context: Context): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -43,20 +46,17 @@ fun hasUsageStatsPermission(context: Context): Boolean {
 fun getFrequentApps(context: Context): List<AppInfo> {
     val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     val endTime = System.currentTimeMillis()
-    val beginTime = endTime - 1000L * 60 * 60 * 24 * 7 // 7 дней назад
+    val beginTime = endTime - 1000L * 60 * 60 * 24 * 7
     
-    // Получаем все события запусков
     val usageEvents = usageStatsManager.queryEvents(beginTime, endTime)
     val event = UsageEvents.Event()
     val launchCounts = mutableMapOf<String, Int>()
 
-    // Считаем, сколько раз каждое приложение выходило на передний план
     while (usageEvents.hasNextEvent()) {
         usageEvents.getNextEvent(event)
-        // ACTIVITY_RESUMED (или MOVE_TO_FOREGROUND) = 1
         if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
             val pkg = event.packageName
-            if (pkg != context.packageName) { // Исключаем наш лаунчер
+            if (pkg != context.packageName) {
                 launchCounts[pkg] = launchCounts.getOrDefault(pkg, 0) + 1
             }
         }
@@ -64,16 +64,15 @@ fun getFrequentApps(context: Context): List<AppInfo> {
 
     val pm = context.packageManager
     
-    // Сортируем по количеству запусков и берем топ-8
     return launchCounts.entries
         .sortedByDescending { it.value }
-        .filter { pm.getLaunchIntentForPackage(it.key) != null } // Только те, что можно открыть
+        .filter { pm.getLaunchIntentForPackage(it.key) != null }
         .mapNotNull {
             try {
                 val appInfo = pm.getApplicationInfo(it.key, 0)
                 val name = pm.getApplicationLabel(appInfo).toString()
                 val icon = pm.getApplicationIcon(it.key)
-                AppInfo(name, it.key, icon, it.value)
+                AppInfo(name, it.key, icon)
             } catch (e: Exception) { null }
         }
         .take(8)
@@ -97,13 +96,24 @@ fun ScreenOne() {
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
+    
+    // Переменная для хранения текущего времени
+    var currentTime by remember { mutableStateOf("") }
+
+    // Таймер, который обновляет время каждую секунду
+    LaunchedEffect(Unit) {
+        while (true) {
+            val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+            currentTime = sdf.format(Date())
+            delay(1000) 
+        }
+    }
 
     LaunchedEffect(hasPermission) {
         while (true) {
             if (hasPermission) {
                 apps = getFrequentApps(context)
             }
-            // Обновляем раз в 10 секунд (чтобы не грузить процессор постоянно)
             delay(10000) 
         }
     }
@@ -130,7 +140,8 @@ fun ScreenOne() {
         
         // Правая колонка
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
-            Text("12:59", fontSize = 48.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            // Теперь тут показывается текущее время!
+            Text(currentTime, fontSize = 48.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("25°", fontSize = 32.sp, color = Color.White)
             Spacer(modifier = Modifier.height(16.dp))
             
