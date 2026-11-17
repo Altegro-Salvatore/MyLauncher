@@ -1,10 +1,18 @@
 package com.example.gamelauncher
 
+import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -14,10 +22,44 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
+import kotlinx.coroutines.delay
+
+data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
+
+fun hasUsageStatsPermission(context: Context): Boolean {
+    val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+    val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+    return mode == AppOpsManager.MODE_ALLOWED
+}
+
+fun getRecentApps(context: Context): List<AppInfo> {
+    val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+    val endTime = System.currentTimeMillis()
+    val beginTime = endTime - 1000 * 60 * 60 * 24 * 7 // За последние 7 дней
+    val usageStatsList = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, beginTime, endTime)
+    val pm = context.packageManager
+    
+    return usageStatsList
+        .filter { it.lastTimeUsed > 0 && it.packageName != context.packageName && pm.getLaunchIntentForPackage(it.packageName) != null }
+        .sortedByDescending { it.lastTimeUsed }
+        .mapNotNull {
+            try {
+                val appInfo = pm.getApplicationInfo(it.packageName, 0)
+                val name = pm.getApplicationLabel(appInfo).toString()
+                val icon = pm.getApplicationIcon(it.packageName)
+                AppInfo(name, it.packageName, icon)
+            } catch (e: Exception) { null }
+        }
+        .distinctBy { it.packageName }
+        .take(8)
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
@@ -34,7 +76,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ScreenOne() {
+    val context = LocalContext.current
+    var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+    var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
+
+    // Обновляем список приложений каждые 3 секунды, если есть разрешение
+    LaunchedEffect(hasPermission) {
+        while (true) {
+            if (hasPermission) {
+                apps = getRecentApps(context)
+            }
+            delay(3000)
+        }
+    }
+
+    // При возвращении из настроек проверяем, дали ли разрешение
+    LaunchedEffect(Unit) {
+        hasPermission = hasUsageStatsPermission(context)
+    }
+
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(16.dp)) {
+        // Левая колонка (Квесты)
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.DarkGray, RoundedCornerShape(16.dp))) {
                 Text("Крупный квест", modifier = Modifier.align(Alignment.Center), color = Color.White)
@@ -46,16 +108,53 @@ fun ScreenOne() {
                 Text("Мелкие квесты (список)", modifier = Modifier.align(Alignment.Center), color = Color.White)
             }
         }
+        
         Spacer(modifier = Modifier.width(16.dp))
+        
+        // Правая колонка (Время, Погода, Прилы)
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
             Text("12:59", fontSize = 48.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("25°", fontSize = 32.sp, color = Color.White)
             Spacer(modifier = Modifier.height(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (i in 0 until 4) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(modifier = Modifier.size(48.dp).background(Color.Gray, RoundedCornerShape(12.dp)))
-                        Box(modifier = Modifier.size(48.dp).background(Color.Gray, RoundedCornerShape(12.dp)))
+            
+            if (!hasPermission) {
+                // Если разрешения нет, показываем кнопку
+                Button(
+                    onClick = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Разрешить\nприложения", textAlign = TextAlign.Center, fontSize = 12.sp)
+                }
+            } else {
+                // Сетка 8 приложений
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    for (i in 0 until 4) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            for (j in 0 until 2) {
+                                val index = i * 2 + j
+                                if (index < apps.size) {
+                                    val app = apps[index]
+                                    Box(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .background(Color(0xFF333333), RoundedCornerShape(14.dp))
+                                            .clickable {
+                                                val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                                                context.startActivity(launchIntent)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        androidx.compose.foundation.Image(
+                                            bitmap = app.icon.toBitmap(100, 100).asImageBitmap(),
+                                            contentDescription = app.name,
+                                            modifier = Modifier.size(44.dp)
+                                        )
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.size(56.dp).background(Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(14.dp)))
+                                }
+                            }
+                        }
                     }
                 }
             }
