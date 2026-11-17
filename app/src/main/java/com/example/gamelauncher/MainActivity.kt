@@ -1,34 +1,27 @@
 package com.example.gamelauncher
 
-import android.Manifest
 import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
-import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,22 +30,51 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
+data class TaskItem(val id: String, val title: String, val isDone: Boolean)
+
+// Функции для сохранения и загрузки задач
+fun saveTasks(context: Context, tasks: List<TaskItem>) {
+    val jsonArray = JSONArray()
+    tasks.forEach {
+        val jsonObj = org.json.JSONObject()
+        jsonObj.put("id", it.id)
+        jsonObj.put("title", it.title)
+        jsonObj.put("isDone", it.isDone)
+        jsonArray.put(jsonObj)
+    }
+    context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
+        .edit().putString("tasks_list", jsonArray.toString()).apply()
+}
+
+fun loadTasks(context: Context): List<TaskItem> {
+    val prefs = context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
+    val jsonStr = prefs.getString("tasks_list", "[]") ?: "[]"
+    val list = mutableListOf<TaskItem>()
+    try {
+        val jsonArray = JSONArray(jsonStr)
+        for (i in 0 until jsonArray.length()) {
+            val obj = jsonArray.getJSONObject(i)
+            list.add(TaskItem(obj.getString("id"), obj.getString("title"), obj.getBoolean("isDone")))
+        }
+    } catch (e: Exception) {}
+    return list
+}
 
 fun hasUsageStatsPermission(context: Context): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+    val mode = appOps.unsafeCheckOpNoThrow(AppManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
@@ -109,6 +131,41 @@ fun ScreenOne() {
     var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
     var currentTime by remember { mutableStateOf("") }
 
+    // Загрузка задач при запуске
+    var tasks by remember { mutableStateOf(loadTasks(context)) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var inputTask by remember { mutableStateOf("") }
+
+    // Окно добавления
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Новая задача") },
+            text = {
+                OutlinedTextField(
+                    value = inputTask,
+                    onValueChange = { inputTask = it },
+                    label = { Text("Что нужно сделать?") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (inputTask.isNotBlank()) {
+                        val newTask = TaskItem(java.util.UUID.randomUUID().toString(), inputTask, false)
+                        tasks = tasks + newTask
+                        saveTasks(context, tasks)
+                    }
+                    inputTask = ""
+                    showAddDialog = false
+                }) { Text("Добавить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text("Отмена") }
+            }
+        )
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -127,20 +184,59 @@ fun ScreenOne() {
     LaunchedEffect(Unit) { hasPermission = hasUsageStatsPermission(context) }
 
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(16.dp)) {
-        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.DarkGray, RoundedCornerShape(16.dp))) {
-                Text("Крупный квест", modifier = Modifier.align(Alignment.Center), color = Color.White)
+        // ЛЕВАЯ КОЛОНКА - СПИСОК ЗАДАЧ
+        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            // Шапка со списком задач
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                Box(
+                    modifier = Modifier.size(36.dp).background(Color.DarkGray, CircleShape)
+                        .clickable { showAddDialog = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("+", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Глобальные", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-            Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.Gray, RoundedCornerShape(16.dp))) {
-                Text("Средний квест", modifier = Modifier.align(Alignment.Center), color = Color.White)
-            }
-            Box(modifier = Modifier.weight(2f).fillMaxWidth().background(Color(0xFF2C2C2C), RoundedCornerShape(16.dp))) {
-                Text("Мелкие квесты (список)", modifier = Modifier.align(Alignment.Center), color = Color.White)
+
+            // Сам список задач
+            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(tasks) { task ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        // Круглый чекбокс
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .border(2.dp, if (task.isDone) Color.Green else Color.Gray, CircleShape)
+                                .background(if (task.isDone) Color.Green else Color.Transparent, CircleShape)
+                                .clickable {
+                                    // Меняем состояние задачи
+                                    val updatedTasks = tasks.map {
+                                        if (it.id == task.id) it.copy(isDone = !it.isDone) else it
+                                    }
+                                    tasks = updatedTasks
+                                    saveTasks(context, updatedTasks)
+                                }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        // Текст задачи (зачеркивается, если выполнена)
+                        Text(
+                            text = task.title,
+                            color = if (task.isDone) Color.Gray else Color.White,
+                            textDecoration = if (task.isDone) TextDecoration.LineThrough else null,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
             }
         }
         
         Spacer(modifier = Modifier.width(16.dp))
         
+        // ПРАВАЯ КОЛОНКА (Время, Погода, Прилы)
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
             Text(currentTime, fontSize = 48.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("25°", fontSize = 32.sp, color = Color.White)
@@ -177,120 +273,9 @@ fun ScreenOne() {
     }
 }
 
+// Второй экран оставляем без изменений
 @Composable
 fun ScreenTwo() {
-    val context = LocalContext.current
-    val prefs: SharedPreferences = context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
-
-    // Состояния для Манны
-    var mannaPoints by remember { mutableStateOf(prefs.getInt("manna_points", 0)) }
-    var showMannaDialog by remember { mutableStateOf(false) }
-    var inputManna by remember { mutableStateOf("") }
-
-    // Состояния для Шагов (пока оставим, но без доступа)
-    var dailySteps by remember { mutableStateOf(0) }
-    val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-    var hasActivityPermission by remember { 
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED) 
-    }
-
-    // Окно ввода калорий
-    if (showMannaDialog) {
-        AlertDialog(
-            onDismissRequest = { showMannaDialog = false },
-            title = { Text("Добавить калории (MP)") },
-            text = {
-                OutlinedTextField(
-                    value = inputManna,
-                    onValueChange = { if (it.all { char -> char.isDigit() }) inputManna = it },
-                    label = { Text("Сколько калорий?") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val calories = inputManna.toIntOrNull() ?: 0
-                    mannaPoints += calories
-                    prefs.edit().putInt("manna_points", mannaPoints).apply()
-                    inputManna = ""
-                    showMannaDialog = false
-                }) {
-                    Text("Добавить")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMannaDialog = false }) {
-                    Text("Отмена")
-                }
-            }
-        )
-    }
-
-    // Логика шагов (если разрешат)
-    DisposableEffect(hasActivityPermission) {
-        val listener = object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent) {
-                if (event.sensor.type == Sensor.TYPE_STEP_COUNTER) {
-                    val totalSensorSteps = event.values[0].toInt()
-                    val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                    val savedDate = prefs.getString("step_date", "")
-                    val savedBaseline = prefs.getInt("step_baseline", -1)
-
-                    if (savedDate != todayDate || savedBaseline == -1 || totalSensorSteps < savedBaseline) {
-                        prefs.edit().putString("step_date", todayDate).putInt("step_baseline", totalSensorSteps).apply()
-                        dailySteps = 0
-                    } else {
-                        dailySteps = totalSensorSteps - savedBaseline
-                    }
-                }
-            }
-            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
-        }
-        if (hasActivityPermission && stepSensor != null) {
-            sensorManager.registerListener(listener, stepSensor, SensorManager.SENSOR_DELAY_UI)
-        }
-        onDispose { sensorManager.unregisterListener(listener) }
-    }
-
-    Row(modifier = Modifier.fillMaxSize().background(Color(0xFF121212)).padding(16.dp)) {
-        Box(
-            modifier = Modifier.weight(1f).fillMaxHeight().background(Color.DarkGray, RoundedCornerShape(16.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("+ Добавить\nАватар", color = Color.Gray, textAlign = TextAlign.Center)
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-        
-        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            StatBox("HP (Пульс)", "99")
-            
-            // КЛИКАБЕЛЬНЫЙ БЛОК МАННЫ
-            Column(modifier = Modifier.clickable { showMannaDialog = true }) {
-                Text("MP (Калории)", color = Color.LightGray, fontSize = 12.sp)
-                Text("$mannaPoints", color = if (mannaPoints < 0) Color.Red else Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            }
-
-            StatBox("Отдых", "6ч 12мин")
-            
-            // Блок с шагами (пока пишет нет доступа)
-            Column {
-                Text("Шаги за сегодня", color = Color.LightGray, fontSize = 12.sp)
-                if (hasActivityPermission && stepSensor != null) {
-                    Text("$dailySteps", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                } else {
-                    Text("Нет доступа", color = Color.Gray, fontSize = 20.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun StatBox(title: String, value: String) {
-    Column {
-        Text(title, color = Color.LightGray, fontSize = 12.sp)
-        Text(value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-    }
+    // ... (код второго экрана остается прежним, я не буду его дублировать, чтобы не спамить)
+    // (Вставь сюда свой текущий код ScreenTwo, он не менялся)
 }
