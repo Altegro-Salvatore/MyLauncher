@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -178,39 +180,66 @@ fun ScreenOne() {
 @Composable
 fun ScreenTwo() {
     val context = LocalContext.current
+    val prefs: SharedPreferences = context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
+
+    // Состояния для Манны
+    var mannaPoints by remember { mutableStateOf(prefs.getInt("manna_points", 0)) }
+    var showMannaDialog by remember { mutableStateOf(false) }
+    var inputManna by remember { mutableStateOf("") }
+
+    // Состояния для Шагов (пока оставим, но без доступа)
     var dailySteps by remember { mutableStateOf(0) }
     val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
-    
-    val prefs: SharedPreferences = context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
-
     var hasActivityPermission by remember { 
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED) 
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        hasActivityPermission = isGranted
-    }
-    
-    LaunchedEffect(Unit) {
-        if (!hasActivityPermission) permissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+    // Окно ввода калорий
+    if (showMannaDialog) {
+        AlertDialog(
+            onDismissRequest = { showMannaDialog = false },
+            title = { Text("Добавить калории (MP)") },
+            text = {
+                OutlinedTextField(
+                    value = inputManna,
+                    onValueChange = { if (it.all { char -> char.isDigit() }) inputManna = it },
+                    label = { Text("Сколько калорий?") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val calories = inputManna.toIntOrNull() ?: 0
+                    mannaPoints += calories
+                    prefs.edit().putInt("manna_points", mannaPoints).apply()
+                    inputManna = ""
+                    showMannaDialog = false
+                }) {
+                    Text("Добавить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMannaDialog = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
     }
 
+    // Логика шагов (если разрешат)
     DisposableEffect(hasActivityPermission) {
         val listener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
                 if (event.sensor.type == Sensor.TYPE_STEP_COUNTER) {
                     val totalSensorSteps = event.values[0].toInt()
                     val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                    
                     val savedDate = prefs.getString("step_date", "")
                     val savedBaseline = prefs.getInt("step_baseline", -1)
 
                     if (savedDate != todayDate || savedBaseline == -1 || totalSensorSteps < savedBaseline) {
-                        prefs.edit()
-                            .putString("step_date", todayDate)
-                            .putInt("step_baseline", totalSensorSteps)
-                            .apply()
+                        prefs.edit().putString("step_date", todayDate).putInt("step_baseline", totalSensorSteps).apply()
                         dailySteps = 0
                     } else {
                         dailySteps = totalSensorSteps - savedBaseline
@@ -219,11 +248,9 @@ fun ScreenTwo() {
             }
             override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
         }
-
         if (hasActivityPermission && stepSensor != null) {
             sensorManager.registerListener(listener, stepSensor, SensorManager.SENSOR_DELAY_UI)
         }
-
         onDispose { sensorManager.unregisterListener(listener) }
     }
 
@@ -238,27 +265,22 @@ fun ScreenTwo() {
         
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             StatBox("HP (Пульс)", "99")
-            StatBox("MP (Калории)", "10")
+            
+            // КЛИКАБЕЛЬНЫЙ БЛОК МАННЫ
+            Column(modifier = Modifier.clickable { showMannaDialog = true }) {
+                Text("MP (Калории)", color = Color.LightGray, fontSize = 12.sp)
+                Text("$mannaPoints", color = if (mannaPoints < 0) Color.Red else Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
+
             StatBox("Отдых", "6ч 12мин")
             
-            // Блок с шагами
+            // Блок с шагами (пока пишет нет доступа)
             Column {
                 Text("Шаги за сегодня", color = Color.LightGray, fontSize = 12.sp)
                 if (hasActivityPermission && stepSensor != null) {
                     Text("$dailySteps", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 } else {
-                    // Если нет разрешения - показываем кнопку, которая ведет в настройки
-                    Button(
-                        onClick = {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                            intent.data = Uri.parse("package:" + context.packageName)
-                            context.startActivity(intent)
-                        },
-                        modifier = Modifier.padding(top = 4.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
-                    ) {
-                        Text("Разрешить", color = Color.White, fontSize = 14.sp)
-                    }
+                    Text("Нет доступа", color = Color.Gray, fontSize = 20.sp)
                 }
             }
         }
