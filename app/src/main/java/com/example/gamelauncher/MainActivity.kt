@@ -1,16 +1,17 @@
 package com.example.gamelauncher
 
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -31,7 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
 
-data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
+data class AppInfo(val name: String, val packageName: String, val icon: Drawable, val launchCount: Int)
 
 fun hasUsageStatsPermission(context: Context): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -39,25 +40,42 @@ fun hasUsageStatsPermission(context: Context): Boolean {
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
-fun getRecentApps(context: Context): List<AppInfo> {
+fun getFrequentApps(context: Context): List<AppInfo> {
     val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     val endTime = System.currentTimeMillis()
-    val beginTime = endTime - 1000 * 60 * 60 * 24 * 7 // За последние 7 дней
-    val usageStatsList = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, beginTime, endTime)
+    val beginTime = endTime - 1000L * 60 * 60 * 24 * 7 // 7 дней назад
+    
+    // Получаем все события запусков
+    val usageEvents = usageStatsManager.queryEvents(beginTime, endTime)
+    val event = UsageEvents.Event()
+    val launchCounts = mutableMapOf<String, Int>()
+
+    // Считаем, сколько раз каждое приложение выходило на передний план
+    while (usageEvents.hasNextEvent()) {
+        usageEvents.getNextEvent(event)
+        // ACTIVITY_RESUMED (или MOVE_TO_FOREGROUND) = 1
+        if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+            val pkg = event.packageName
+            if (pkg != context.packageName) { // Исключаем наш лаунчер
+                launchCounts[pkg] = launchCounts.getOrDefault(pkg, 0) + 1
+            }
+        }
+    }
+
     val pm = context.packageManager
     
-    return usageStatsList
-        .filter { it.lastTimeUsed > 0 && it.packageName != context.packageName && pm.getLaunchIntentForPackage(it.packageName) != null }
-        .sortedByDescending { it.lastTimeUsed }
+    // Сортируем по количеству запусков и берем топ-8
+    return launchCounts.entries
+        .sortedByDescending { it.value }
+        .filter { pm.getLaunchIntentForPackage(it.key) != null } // Только те, что можно открыть
         .mapNotNull {
             try {
-                val appInfo = pm.getApplicationInfo(it.packageName, 0)
+                val appInfo = pm.getApplicationInfo(it.key, 0)
                 val name = pm.getApplicationLabel(appInfo).toString()
-                val icon = pm.getApplicationIcon(it.packageName)
-                AppInfo(name, it.packageName, icon)
+                val icon = pm.getApplicationIcon(it.key)
+                AppInfo(name, it.key, icon, it.value)
             } catch (e: Exception) { null }
         }
-        .distinctBy { it.packageName }
         .take(8)
 }
 
@@ -80,17 +98,16 @@ fun ScreenOne() {
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
 
-    // Обновляем список приложений каждые 3 секунды, если есть разрешение
     LaunchedEffect(hasPermission) {
         while (true) {
             if (hasPermission) {
-                apps = getRecentApps(context)
+                apps = getFrequentApps(context)
             }
-            delay(3000)
+            // Обновляем раз в 10 секунд (чтобы не грузить процессор постоянно)
+            delay(10000) 
         }
     }
 
-    // При возвращении из настроек проверяем, дали ли разрешение
     LaunchedEffect(Unit) {
         hasPermission = hasUsageStatsPermission(context)
     }
@@ -111,14 +128,13 @@ fun ScreenOne() {
         
         Spacer(modifier = Modifier.width(16.dp))
         
-        // Правая колонка (Время, Погода, Прилы)
+        // Правая колонка
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
             Text("12:59", fontSize = 48.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("25°", fontSize = 32.sp, color = Color.White)
             Spacer(modifier = Modifier.height(16.dp))
             
             if (!hasPermission) {
-                // Если разрешения нет, показываем кнопку
                 Button(
                     onClick = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) },
                     modifier = Modifier.fillMaxWidth()
@@ -126,7 +142,6 @@ fun ScreenOne() {
                     Text("Разрешить\nприложения", textAlign = TextAlign.Center, fontSize = 12.sp)
                 }
             } else {
-                // Сетка 8 приложений
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     for (i in 0 until 4) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -144,7 +159,7 @@ fun ScreenOne() {
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        androidx.compose.foundation.Image(
+                                        Image(
                                             bitmap = app.icon.toBitmap(100, 100).asImageBitmap(),
                                             contentDescription = app.name,
                                             modifier = Modifier.size(44.dp)
