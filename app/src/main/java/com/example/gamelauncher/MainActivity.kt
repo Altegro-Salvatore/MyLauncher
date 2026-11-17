@@ -22,6 +22,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -37,18 +39,19 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
 import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
 data class TaskItem(val id: String, val title: String, val isDone: Boolean)
 
-// Функции для сохранения и загрузки задач
 fun saveTasks(context: Context, tasks: List<TaskItem>) {
     val jsonArray = JSONArray()
     tasks.forEach {
-        val jsonObj = org.json.JSONObject()
+        val jsonObj = JSONObject()
         jsonObj.put("id", it.id)
         jsonObj.put("title", it.title)
         jsonObj.put("isDone", it.isDone)
@@ -74,7 +77,8 @@ fun loadTasks(context: Context): List<TaskItem> {
 
 fun hasUsageStatsPermission(context: Context): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val mode = appOps.unsafeCheckOpNoThrow(AppManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+    // Вот тут была ошибка, теперь AppOpsManager
+    val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
@@ -131,12 +135,10 @@ fun ScreenOne() {
     var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
     var currentTime by remember { mutableStateOf("") }
 
-    // Загрузка задач при запуске
     var tasks by remember { mutableStateOf(loadTasks(context)) }
     var showAddDialog by remember { mutableStateOf(false) }
     var inputTask by remember { mutableStateOf("") }
 
-    // Окно добавления
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
@@ -152,7 +154,7 @@ fun ScreenOne() {
             confirmButton = {
                 TextButton(onClick = {
                     if (inputTask.isNotBlank()) {
-                        val newTask = TaskItem(java.util.UUID.randomUUID().toString(), inputTask, false)
+                        val newTask = TaskItem(UUID.randomUUID().toString(), inputTask, false)
                         tasks = tasks + newTask
                         saveTasks(context, tasks)
                     }
@@ -186,7 +188,6 @@ fun ScreenOne() {
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E)).padding(16.dp)) {
         // ЛЕВАЯ КОЛОНКА - СПИСОК ЗАДАЧ
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-            // Шапка со списком задач
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
                 Box(
                     modifier = Modifier.size(36.dp).background(Color.DarkGray, CircleShape)
@@ -199,21 +200,18 @@ fun ScreenOne() {
                 Text("Глобальные", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
-            // Сам список задач
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(tasks) { task ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     ) {
-                        // Круглый чекбокс
                         Box(
                             modifier = Modifier
                                 .size(24.dp)
                                 .border(2.dp, if (task.isDone) Color.Green else Color.Gray, CircleShape)
                                 .background(if (task.isDone) Color.Green else Color.Transparent, CircleShape)
                                 .clickable {
-                                    // Меняем состояние задачи
                                     val updatedTasks = tasks.map {
                                         if (it.id == task.id) it.copy(isDone = !it.isDone) else it
                                     }
@@ -222,7 +220,6 @@ fun ScreenOne() {
                                 }
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        // Текст задачи (зачеркивается, если выполнена)
                         Text(
                             text = task.title,
                             color = if (task.isDone) Color.Gray else Color.White,
@@ -236,7 +233,7 @@ fun ScreenOne() {
         
         Spacer(modifier = Modifier.width(16.dp))
         
-        // ПРАВАЯ КОЛОНКА (Время, Погода, Прилы)
+        // ПРАВАЯ КОЛОНКА
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
             Text(currentTime, fontSize = 48.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("25°", fontSize = 32.sp, color = Color.White)
@@ -273,7 +270,6 @@ fun ScreenOne() {
     }
 }
 
-// Второй экран оставляем без изменений
 @Composable
 fun ScreenTwo() {
     val context = LocalContext.current
@@ -292,6 +288,7 @@ fun ScreenTwo() {
                     value = inputManna,
                     onValueChange = { if (it.all { char -> char.isDigit() }) inputManna = it },
                     label = { Text("Сколько калорий?") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true
                 )
             },
