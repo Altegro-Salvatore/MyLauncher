@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     
-    <!-- ЭТОТ БЛОК ОТКРЫВАЕТ ДОСТУП КО ВСЕМ ПРИЛОЖЕНИЯМ -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <!-- ВОТ ЭТО РАЗРЕШЕНИЕ ОТКРЫВАЕТ ВСЕ ПРИЛОЖЕНИЯ -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
