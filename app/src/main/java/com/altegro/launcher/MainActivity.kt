@@ -104,12 +104,12 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
-// ИСПРАВЛЕННЫЙ МЕТОД ПОЛУЧЕНИЯ ВСЕХ ПРИЛОЖЕНИЙ
+// ИСПРАВЛЕННЫЙ МЕТОД ПОЛУЧЕНИЯ ВСЕХ ПРИЛОЖЕНИЙ (иконка берется из pm)
 fun getLaunchableApps(context: Context): List<SimpleAppInfo> {
     val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
     val user = android.os.Process.myUserHandle()
+    val pm = context.packageManager
     
-    // Используем getActivityList, чтобы обойти ограничения HyperOS
     val activities = launcherApps.getActivityList(null, user)
     
     return activities.mapNotNull { activity ->
@@ -118,7 +118,7 @@ fun getLaunchableApps(context: Context): List<SimpleAppInfo> {
                 SimpleAppInfo(
                     name = activity.label.toString(),
                     packageName = activity.componentName.packageName,
-                    icon = activity.icon
+                    icon = pm.getApplicationIcon(activity.componentName.packageName) // ИСПРАВЛЕНО ТУТ
                 )
             } else null
         } catch (e: Exception) {
