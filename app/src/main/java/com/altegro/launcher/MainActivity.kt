@@ -38,7 +38,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -85,7 +87,8 @@ fun hasUsageStatsPermission(context: Context): Boolean {
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
-fun getFrequentApps(context: Context): List<AppInfo> {
+// Выполняется в фоне (Dispatchers.IO), чтобы не вешать интерфейс
+suspend fun getFrequentApps(context: Context): List<AppInfo> = withContext(Dispatchers.IO) {
     val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     val endTime = System.currentTimeMillis()
     val beginTime = endTime - 1000L * 60 * 60 * 24 * 7
@@ -106,7 +109,7 @@ fun getFrequentApps(context: Context): List<AppInfo> {
         }
     }
 
-    return launchCounts.entries.sortedByDescending { it.value }
+    launchCounts.entries.sortedByDescending { it.value }
         .mapNotNull {
             try {
                 val appInfo = pm.getApplicationInfo(it.key, 0)
@@ -128,13 +131,27 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// Выносим часы в отдельный компонент, чтобы они не перерисовывали весь экран каждую секунду
+@Composable
+fun ClockWidget() {
+    var currentTime by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            delay(1000)
+        }
+    }
+    Box(modifier = Modifier.fillMaxWidth().background(ColorCardBg, RoundedCornerShape(4.dp)).border(2.dp, ColorGold, RoundedCornerShape(4.dp)).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Text(currentTime, fontSize = 42.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, color = ColorParchment)
+    }
+}
+
 @Composable
 fun ScreenOne() {
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
-    var currentTime by remember { mutableStateOf("") }
-
+    
     var tasks by remember { mutableStateOf(loadTasks(context)) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
@@ -167,8 +184,16 @@ fun ScreenOne() {
         )
     }
 
-    LaunchedEffect(Unit) { while (true) { currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()); delay(1000) } }
-    LaunchedEffect(hasPermission) { while (true) { if (hasPermission) apps = getFrequentApps(context); delay(5000) } }
+    // Обновляем список приложений раз в 30 секунд в фоне
+    LaunchedEffect(hasPermission) {
+        if (hasPermission) {
+            while (true) {
+                apps = getFrequentApps(context)
+                delay(30000) 
+            }
+        }
+    }
+    
     LaunchedEffect(Unit) { hasPermission = hasUsageStatsPermission(context) }
 
     val onTaskDone: (TaskItem) -> Unit = { task -> tasks = tasks.map { if (it.id == task.id) it.copy(isDone = true) else it }; saveTasks(context, tasks) }
@@ -187,9 +212,9 @@ fun ScreenOne() {
         Spacer(modifier = Modifier.width(16.dp))
         
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
-            Box(modifier = Modifier.fillMaxWidth().background(ColorCardBg, RoundedCornerShape(4.dp)).border(2.dp, ColorGold, RoundedCornerShape(4.dp)).padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                Text(currentTime, fontSize = 42.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, color = ColorParchment)
-            }
+            
+            ClockWidget() // Используем оптимизированные часы
+
             Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
             Spacer(modifier = Modifier.height(8.dp))
             
