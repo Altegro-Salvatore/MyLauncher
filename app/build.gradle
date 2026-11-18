@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace 'com.example.gamelauncher'
+    namespace 'com.altegro.launcher'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.example.gamelauncher"
+        applicationId "com.altegro.launcher"
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -23,7 +23,7 @@ android {
         kotlinCompilerExtensionVersion '1.5.8' 
     }
 
-    // --- ВОТ ЭТОТ БЛОК ДОБАВЛЯЕТ ПОСТОЯННУЮ ПОДПИСЬ ---
+    // Настройка постоянной подписи
     signingConfigs {
         debug {
             storeFile file("debug.keystore")
@@ -38,7 +38,6 @@ android {
             signingConfig signingConfigs.debug
         }
     }
-    // --------------------------------------------------
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
