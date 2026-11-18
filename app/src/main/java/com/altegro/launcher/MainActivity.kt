@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.LauncherApps
 import android.graphics.drawable.Drawable
 import android.os.Bundle
-import android.os.UserHandle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
@@ -44,6 +43,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
 import org.json.JSONArray
@@ -103,23 +104,21 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
-// МАГИЯ ДЛЯ ПОЛУЧЕНИЯ ВСЕХ ПРИЛОЖЕНИЙ (Обход ограничений HyperOS)
+// ИСПРАВЛЕННЫЙ МЕТОД ПОЛУЧЕНИЯ ВСЕХ ПРИЛОЖЕНИЙ
 fun getLaunchableApps(context: Context): List<SimpleAppInfo> {
     val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
     val user = android.os.Process.myUserHandle()
     
-    // Получаем все активности, которые можно запустить с рабочего стола
-    val activities = launcherApps.getActivities(user)
+    // Используем getActivityList, чтобы обойти ограничения HyperOS
+    val activities = launcherApps.getActivityList(null, user)
     
     return activities.mapNotNull { activity ->
         try {
-            val appInfo = launcherApps.getApplicationInfo(activity.componentName.packageName, 0, user)
-            // Исключаем наш лаунчер из списка
             if (activity.componentName.packageName != context.packageName) {
                 SimpleAppInfo(
                     name = activity.label.toString(),
                     packageName = activity.componentName.packageName,
-                    icon = activity.icon ?: appInfo.loadIcon(context.packageManager)
+                    icon = activity.icon
                 )
             } else null
         } catch (e: Exception) {
@@ -175,9 +174,8 @@ fun ScreenOne() {
     var selectedPackages by remember { mutableStateOf(loadAppSelection(context)) }
     var showAppPicker by remember { mutableStateOf(false) }
     var appToReplaceIndex by remember { mutableStateOf(-1) }
-    val allInstalledApps = remember { getLaunchableApps(context) } // Используем новый метод
+    val allInstalledApps = remember { getLaunchableApps(context) }
     
-    // Состояние для нашей новой шторки приложений
     var isDrawerOpen by remember { mutableStateOf(false) }
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -185,7 +183,6 @@ fun ScreenOne() {
     var inputTask by remember { mutableStateOf("") }
     var currentCategory by remember { mutableStateOf("Major") }
 
-    // Окно выбора приложений для слотов (оставляем как было)
     if (showAppPicker) {
         var searchQuery by remember { mutableStateOf("") }
         var manualPackage by remember { mutableStateOf("") }
@@ -193,7 +190,7 @@ fun ScreenOne() {
 
         Dialog(
             onDismissRequest = { showAppPicker = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(modifier = Modifier.fillMaxSize(), color = ColorBg) {
                 Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -260,14 +257,12 @@ fun ScreenOne() {
         }
     }
 
-    // Основной экран
     Box(modifier = Modifier.fillMaxSize().background(ColorBg)) {
         
         Row(modifier = Modifier.fillMaxSize().padding(16.dp)
-            // ДЕТЕКТОР СВАЙПА ВВЕРХ ДЛЯ ОТКРЫТИЯ ШТОРКИ
             .pointerInput(Unit) {
                 detectVerticalDragGestures { _, dragAmount ->
-                    if (dragAmount < -50) { // Если свайпнули вверх
+                    if (dragAmount < -50) {
                         isDrawerOpen = true
                     }
                 }
@@ -314,7 +309,6 @@ fun ScreenOne() {
             }
         }
 
-        // НАША ШТОРКА ПРИЛОЖЕНИЙ (ВЫЕЗЖАЕТ СНИЗУ)
         AnimatedVisibility(
             visible = isDrawerOpen,
             enter = slideInVertically(initialOffsetY = { it }),
@@ -327,7 +321,6 @@ fun ScreenOne() {
             Surface(modifier = Modifier.fillMaxSize(), color = ColorBg.copy(alpha = 0.95f)) {
                 Column(modifier = Modifier.fillMaxSize().padding(top = 40.dp, start = 16.dp, end = 16.dp, bottom = 16.dp)) {
                     
-                    // Полоска для закрытия шторки (свайп вниз)
                     Box(modifier = Modifier.fillMaxWidth().height(30.dp).pointerInput(Unit) {
                         detectVerticalDragGestures { _, dragAmount ->
                             if (dragAmount > 30) isDrawerOpen = false
@@ -346,14 +339,13 @@ fun ScreenOne() {
                     
                     Spacer(modifier = Modifier.height(16.dp))
                     
-                    // Сетка всех приложений
                     LazyVerticalGrid(columns = GridCells.Fixed(4), modifier = Modifier.weight(1f)) {
                         items(filteredDrawerApps) { app ->
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.padding(12.dp).clickable {
                                     context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName))
-                                    isDrawerOpen = false // Закрываем шторку после запуска
+                                    isDrawerOpen = false
                                 }
                             ) {
                                 Box(modifier = Modifier.size(64.dp).background(ColorCardBg, RoundedCornerShape(16.dp)).border(1.dp, ColorGold.copy(alpha = 0.5f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
@@ -369,7 +361,6 @@ fun ScreenOne() {
         }
     }
 
-    // Диалоги
     if (showAddDialog) {
         AlertDialog(onDismissRequest = { showAddDialog = false }, containerColor = ColorCardBg, title = { Text("Новая задача", color = ColorGold, fontFamily = FontFamily.Serif) }, text = { OutlinedTextField(value = inputTask, onValueChange = { inputTask = it }, label = { Text("Что сделать?", color = ColorParchment) }, singleLine = true, colors = TextFieldDefaults.colors(focusedTextColor = ColorParchment, unfocusedTextColor = ColorParchment, focusedContainerColor = ColorBg, unfocusedContainerColor = ColorBg, focusedIndicatorColor = ColorGold, unfocusedIndicatorColor = ColorGold.copy(alpha = 0.5f))) }, confirmButton = { TextButton(onClick = { if (inputTask.isNotBlank()) { tasks = tasks + TaskItem(UUID.randomUUID().toString(), inputTask, currentCategory); saveTasks(context, tasks) }; inputTask = ""; showAddDialog = false }) { Text("Добавить", color = ColorGold) } }, dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("Отмена", color = ColorParchment) } })
     }
