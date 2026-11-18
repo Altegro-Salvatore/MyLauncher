@@ -38,6 +38,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
 import org.json.JSONArray
@@ -97,31 +99,38 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
-// АБСОЛЮТНО ВСЕ ПРИЛОЖЕНИЯ
+// МАКСИМАЛЬНО АГРЕССИВНЫЙ ПОИСК ВСЕХ ПРИЛОЖЕНИЙ
 fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     val pm = context.packageManager
-    // Получаем вообще все пакеты в системе
-    val installedPackages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-    
-    return installedPackages.mapNotNull { appInfo ->
-        // Проверяем, есть ли у приложения интерфейс (иконка)
-        val launchIntent = pm.getLaunchIntentForPackage(appInfo.packageName)
-        
-        // Пропускаем наш лаунчер
-        if (launchIntent != null && appInfo.packageName != context.packageName) {
-            try {
-                val name = pm.getApplicationLabel(appInfo).toString()
-                val icon = pm.getApplicationIcon(appInfo.packageName)
-                SimpleAppInfo(name, appInfo.packageName, icon)
-            } catch (e: Exception) {
-                null
+    val appsMap = mutableMapOf<String, SimpleAppInfo>()
+
+    // 1. Пытаемся достать через queryIntentActivities (с флагом MATCH_ALL)
+    val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+    val resolveInfoList = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+    resolveInfoList.forEach { resolveInfo ->
+        try {
+            val pkg = resolveInfo.activityInfo.packageName
+            if (pkg != context.packageName) {
+                appsMap[pkg] = SimpleAppInfo(resolveInfo.loadLabel(pm).toString(), pkg, resolveInfo.loadIcon(pm))
             }
-        } else {
-            null
+        } catch (e: Exception) {}
+    }
+
+    // 2. Добиваем через getInstalledApplications (на случай если Xiaomi спрятала что-то в первом методе)
+    val installedPackages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+    installedPackages.forEach { appInfo ->
+        val pkg = appInfo.packageName
+        if (pkg != context.packageName && !appsMap.containsKey(pkg)) {
+            val launchIntent = pm.getLaunchIntentForPackage(pkg)
+            if (launchIntent != null) {
+                try {
+                    appsMap[pkg] = SimpleAppInfo(pm.getApplicationLabel(appInfo).toString(), pkg, pm.getApplicationIcon(pkg))
+                } catch (e: Exception) {}
+            }
         }
     }
-    .distinctBy { it.packageName }
-    .sortedBy { it.name.lowercase() }
+
+    return appsMap.values.sortedBy { it.name.lowercase() }
 }
 
 fun getAppsByPackages(context: Context, packages: List<String>): List<SimpleAppInfo?> {
@@ -176,36 +185,60 @@ fun ScreenOne() {
     var inputTask by remember { mutableStateOf("") }
     var currentCategory by remember { mutableStateOf("Major") }
 
+    // ПОЛНОЭКРАННОЕ ОКНО ВЫБОРА ПРИЛОЖЕНИЙ
     if (showAppPicker) {
-        AlertDialog(
-            onDismissRequest = { showAppPicker = false }, containerColor = ColorCardBg,
-            title = { Text("Выберите приложение", color = ColorGold, fontFamily = FontFamily.Serif) },
-            text = {
-                LazyVerticalGrid(columns = GridCells.Fixed(4), modifier = Modifier.fillMaxWidth()) {
-                    items(allInstalledApps) { app ->
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(8.dp).clickable {
-                                val newList = selectedPackages.toMutableList()
-                                if (appToReplaceIndex == -1) { 
-                                    if (newList.size < 8) newList.add(app.packageName)
-                                } else { 
-                                    if (appToReplaceIndex < newList.size) newList[appToReplaceIndex] = app.packageName
-                                    else newList.add(app.packageName)
+        var searchQuery by remember { mutableStateOf("") }
+        val filteredApps = allInstalledApps.filter { it.name.contains(searchQuery, ignoreCase = true) }
+
+        Dialog(
+            onDismissRequest = { showAppPicker = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize().background(ColorBg)) {
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    Text("Выберите приложение", color = ColorGold, fontFamily = FontFamily.Serif, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text("Поиск...", color = ColorParchment) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(focusedTextColor = ColorParchment, unfocusedTextColor = ColorParchment, focusedContainerColor = ColorCardBg, unfocusedContainerColor = ColorCardBg, focusedIndicatorColor = ColorGold, unfocusedIndicatorColor = ColorGold.copy(alpha = 0.5f))
+                    )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    LazyVerticalGrid(columns = GridCells.Fixed(4), modifier = Modifier.weight(1f)) {
+                        items(filteredApps) { app ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(8.dp).clickable {
+                                    val newList = selectedPackages.toMutableList()
+                                    if (appToReplaceIndex == -1) { 
+                                        if (newList.size < 8) newList.add(app.packageName)
+                                    } else { 
+                                        if (appToReplaceIndex < newList.size) newList[appToReplaceIndex] = app.packageName
+                                        else newList.add(app.packageName)
+                                    }
+                                    selectedPackages = newList
+                                    saveAppSelection(context, newList)
+                                    showAppPicker = false
                                 }
-                                selectedPackages = newList
-                                saveAppSelection(context, newList)
-                                showAppPicker = false
+                            ) {
+                                Image(bitmap = app.icon.toBitmap(100, 100).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(56.dp))
+                                Text(app.name, color = ColorParchment, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                             }
-                        ) {
-                            Image(bitmap = app.icon.toBitmap(100, 100).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(48.dp))
-                            Text(app.name, color = ColorParchment, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                         }
                     }
+                    
+                    Button(onClick = { showAppPicker = false }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp), colors = ButtonDefaults.buttonColors(containerColor = ColorCardBg)) {
+                        Text("Отмена", color = ColorParchment)
+                    }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showAppPicker = false }) { Text("Отмена", color = ColorParchment) } }
-        )
+            }
+        }
     }
 
     if (showAddDialog) {
