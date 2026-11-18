@@ -1,19 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" xmlns:tools="http://schemas.android.com/tools" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     
     <application
         android:label="GameLauncher"
-        android:theme="@style/Theme.AppCompat.NoActionBar">
+        android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:stateNotNeeded="true">
+            
+            <!-- Фильтр для запуска как обычное приложение (иконка в меню) -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            
+            <!-- Фильтр для работы в качестве главного экрана (Лаунчера) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            
         </activity>
     </application>
 </manifest>
