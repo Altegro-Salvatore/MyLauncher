@@ -239,15 +239,15 @@ fun ScreenOne() {
             }
         }
         
-        // Отступ между колонками (такой же, как отступ от края экрана - 16dp)
         Spacer(modifier = Modifier.width(16.dp))
         
-        // ПРАВАЯ КОЛОНКА - ВРЕМЯ, ПОГОДА, ПРИЛОЖЕНИЯ
+        // ПРАВАЯ КОЛОНКА - ВРЕМЯ, ПОГОДА И ПРИЛОЖЕНИЯ
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
             ClockWidget()
             Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
             
-            Spacer(modifier = Modifier.height(8.dp))
+            // ВОТ ЭТОТ SPACER ПРИЖИМАЕТ ВСЕ ПРИЛОЖЕНИЯ ВНИЗ
+            Spacer(modifier = Modifier.weight(1f))
             
             // Сетка приложений (2 колонки на 4 строки, увеличенные)
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -260,7 +260,7 @@ fun ScreenOne() {
                             if (app != null) {
                                 Box(
                                     modifier = Modifier
-                                        .size(70.dp) // УВЕЛИЧИЛИ РАЗМЕР С 56 ДО 70
+                                        .size(70.dp)
                                         .background(Color(0xFF1E1814), RoundedCornerShape(14.dp))
                                         .border(1.dp, ColorGold, RoundedCornerShape(14.dp))
                                         .clickable { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)) },
@@ -271,7 +271,7 @@ fun ScreenOne() {
                             } else {
                                 Box(
                                     modifier = Modifier
-                                        .size(70.dp) // УВЕЛИЧИЛИ РАЗМЕР С 56 ДО 70
+                                        .size(70.dp)
                                         .background(Color(0xFF1E1814), RoundedCornerShape(14.dp))
                                         .border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
                                         .clickable { appToReplaceIndex = -1; showAppPicker = true },
