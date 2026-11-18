@@ -1,13 +1,10 @@
 package com.altegro.launcher
 
-import android.app.AppOpsManager
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -17,6 +14,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -35,12 +35,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -55,9 +54,10 @@ val ColorParchment = Color(0xFFE8D5B5)
 val ColorHp = Color(0xFFD9534F)
 val ColorMp = Color(0xFF5BC0DE)
 
-data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
 data class TaskItem(val id: String, val title: String, val category: String, val isDone: Boolean = false)
+data class SimpleAppInfo(val name: String, val packageName: String, val icon: Drawable)
 
+// Сохранение и загрузка задач
 fun saveTasks(context: Context, tasks: List<TaskItem>) {
     val jsonArray = JSONArray()
     tasks.forEach {
@@ -81,41 +81,50 @@ fun loadTasks(context: Context): List<TaskItem> {
     return list
 }
 
-fun hasUsageStatsPermission(context: Context): Boolean {
-    val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
-    return mode == AppOpsManager.MODE_ALLOWED
+// Сохранение и загрузка выбранных приложений
+fun saveAppSelection(context: Context, packages: List<String>) {
+    val jsonArray = JSONArray(packages)
+    context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE).edit().putString("selected_apps", jsonArray.toString()).apply()
 }
 
-// Выполняется в фоне (Dispatchers.IO), чтобы не вешать интерфейс
-suspend fun getFrequentApps(context: Context): List<AppInfo> = withContext(Dispatchers.IO) {
-    val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-    val endTime = System.currentTimeMillis()
-    val beginTime = endTime - 1000L * 60 * 60 * 24 * 7
-    val usageEvents = usageStatsManager.queryEvents(beginTime, endTime)
-    val event = UsageEvents.Event()
-    val launchCounts = mutableMapOf<String, Int>()
-    val pm = context.packageManager
-
-    while (usageEvents.hasNextEvent()) {
-        usageEvents.getNextEvent(event)
-        if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
-            val pkg = event.packageName
-            if (pkg != context.packageName && pkg != "com.android.systemui") {
-                if (pm.getLaunchIntentForPackage(pkg) != null) {
-                    launchCounts[pkg] = launchCounts.getOrDefault(pkg, 0) + 1
-                }
-            }
+fun loadAppSelection(context: Context): List<String> {
+    val prefs = context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE)
+    val list = mutableListOf<String>()
+    try {
+        val jsonArray = JSONArray(prefs.getString("selected_apps", "[]") ?: "[]")
+        for (i in 0 until jsonArray.length()) {
+            list.add(jsonArray.getString(i))
         }
-    }
+    } catch (e: Exception) {}
+    return list
+}
 
-    launchCounts.entries.sortedByDescending { it.value }
-        .mapNotNull {
-            try {
-                val appInfo = pm.getApplicationInfo(it.key, 0)
-                AppInfo(pm.getApplicationLabel(appInfo).toString(), it.key, pm.getApplicationIcon(it.key))
-            } catch (e: Exception) { null }
-        }.distinctBy { it.packageName }.take(8)
+// Получить ВСЕ установленные приложения (для меню выбора)
+fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
+    val pm = context.packageManager
+    val intent = Intent(Intent.ACTION_MAIN, null)
+    intent.addCategory(Intent.CATEGORY_LAUNCHER)
+    val resolveInfoList = pm.queryIntentActivities(intent, 0)
+    
+    return resolveInfoList.mapNotNull { resolveInfo ->
+        try {
+            val pkg = resolveInfo.activityInfo.packageName
+            val name = resolveInfo.loadLabel(pm).toString()
+            val icon = resolveInfo.loadIcon(pm)
+            SimpleAppInfo(name, pkg, icon)
+        } catch (e: Exception) { null }
+    }.sortedBy { it.name }
+}
+
+// Получить инфу о конкретных приложениях по их пакетам
+fun getAppsByPackages(context: Context, packages: List<String>): List<SimpleAppInfo?> {
+    val pm = context.packageManager
+    return packages.map { pkg ->
+        try {
+            val info = pm.getApplicationInfo(pkg, 0)
+            SimpleAppInfo(pm.getApplicationLabel(info).toString(), pkg, pm.getApplicationIcon(pkg))
+        } catch (e: Exception) { null }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -131,7 +140,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Выносим часы в отдельный компонент, чтобы они не перерисовывали весь экран каждую секунду
 @Composable
 fun ClockWidget() {
     var currentTime by remember { mutableStateOf("") }
@@ -149,14 +157,56 @@ fun ClockWidget() {
 @Composable
 fun ScreenOne() {
     val context = LocalContext.current
-    var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
-    var hasPermission by remember { mutableStateOf(hasUsageStatsPermission(context)) }
-    
     var tasks by remember { mutableStateOf(loadTasks(context)) }
+    
+    // Состояние для приложений
+    var selectedPackages by remember { mutableStateOf(loadAppSelection(context)) }
+    var showAppPicker by remember { mutableStateOf(false) }
+    var appToReplaceIndex by remember { mutableStateOf(-1) }
+    val allInstalledApps = remember { getAllInstalledApps(context) }
+    
     var showAddDialog by remember { mutableStateOf(false) }
     var showHistoryDialog by remember { mutableStateOf(false) }
     var inputTask by remember { mutableStateOf("") }
     var currentCategory by remember { mutableStateOf("Major") }
+
+    // Меню выбора приложений
+    if (showAppPicker) {
+        AlertDialog(
+            onDismissRequest = { showAppPicker = false }, containerColor = ColorCardBg,
+            title = { Text("Выберите приложение", color = ColorGold, fontFamily = FontFamily.Serif) },
+            text = {
+                LazyVerticalGrid(columns = GridCells.Fixed(4), modifier = Modifier.fillMaxWidth()) {
+                    items(allInstalledApps) { app ->
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(8.dp).clickable {
+                                val newList = selectedPackages.toMutableList()
+                                if (appToReplaceIndex == -1) { // Добавляем новое
+                                    if (newList.size < 8) {
+                                        newList.add(app.packageName)
+                                    }
+                                } else { // Заменяем существующее
+                                    if (appToReplaceIndex < newList.size) {
+                                        newList[appToReplaceIndex] = app.packageName
+                                    } else {
+                                        newList.add(app.packageName)
+                                    }
+                                }
+                                selectedPackages = newList
+                                saveAppSelection(context, newList)
+                                showAppPicker = false
+                            }
+                        ) {
+                            Image(bitmap = app.icon.toBitmap(100, 100).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(48.dp))
+                            Text(app.name, color = ColorParchment, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAppPicker = false }) { Text("Отмена", color = ColorParchment) } }
+        )
+    }
 
     if (showAddDialog) {
         AlertDialog(
@@ -184,58 +234,65 @@ fun ScreenOne() {
         )
     }
 
-    // Обновляем список приложений раз в 30 секунд в фоне
-    LaunchedEffect(hasPermission) {
-        if (hasPermission) {
-            while (true) {
-                apps = getFrequentApps(context)
-                delay(30000) 
-            }
-        }
-    }
-    
-    LaunchedEffect(Unit) { hasPermission = hasUsageStatsPermission(context) }
-
     val onTaskDone: (TaskItem) -> Unit = { task -> tasks = tasks.map { if (it.id == task.id) it.copy(isDone = true) else it }; saveTasks(context, tasks) }
 
-    Row(modifier = Modifier.fillMaxSize().background(ColorBg).padding(16.dp)) {
-        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) { QuestListCard("Глобальные", tasks.filter { it.category == "Major" && !it.isDone }, { currentCategory = "Major"; showAddDialog = true }, onTaskDone) }
-            Box(modifier = Modifier.weight(1.2f).fillMaxWidth()) { QuestListCard("Средние", tasks.filter { it.category == "Medium" && !it.isDone }, { currentCategory = "Medium"; showAddDialog = true }, onTaskDone) }
-            Box(modifier = Modifier.weight(2f).fillMaxWidth()) { QuestListCard("Мелкие", tasks.filter { it.category == "Minor" && !it.isDone }, { currentCategory = "Minor"; showAddDialog = true }, onTaskDone) }
+    // Основной макет: Верхняя часть (Квесты + Время) и Нижняя часть (Приложения)
+    Column(modifier = Modifier.fillMaxSize().background(ColorBg).padding(16.dp)) {
+        
+        // ВЕРХНЯЯ ЧАСТЬ
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            // Левая колонка - Квесты
+            Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) { QuestListCard("Глобальные", tasks.filter { it.category == "Major" && !it.isDone }, { currentCategory = "Major"; showAddDialog = true }, onTaskDone) }
+                Box(modifier = Modifier.weight(1.2f).fillMaxWidth()) { QuestListCard("Средние", tasks.filter { it.category == "Medium" && !it.isDone }, { currentCategory = "Medium"; showAddDialog = true }, onTaskDone) }
+                Box(modifier = Modifier.weight(2f).fillMaxWidth()) { QuestListCard("Мелкие", tasks.filter { it.category == "Minor" && !it.isDone }, { currentCategory = "Minor"; showAddDialog = true }, onTaskDone) }
+                
+                Button(onClick = { showHistoryDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ColorCardBg)) {
+                    Text("История квестов", color = ColorGold, fontFamily = FontFamily.Serif)
+                }
+            }
             
-            Button(onClick = { showHistoryDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ColorCardBg)) {
-                Text("История квестов", color = ColorGold, fontFamily = FontFamily.Serif)
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            // Правая колонка - Время и погода
+            Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
+                ClockWidget()
+                Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
             }
         }
-        
-        Spacer(modifier = Modifier.width(16.dp))
-        
-        Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
-            
-            ClockWidget() // Используем оптимизированные часы
 
-            Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            if (!hasPermission) {
-                Button(onClick = { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ColorCardBg)) {
-                    Text("Разрешить\nприложения", textAlign = TextAlign.Center, fontSize = 12.sp, color = ColorGold)
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    for (i in 0 until 4) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            for (j in 0 until 2) {
-                                val index = i * 2 + j
-                                if (index < apps.size) {
-                                    val app = apps[index]
-                                    Box(modifier = Modifier.size(56.dp).background(ColorCardBg, RoundedCornerShape(8.dp)).border(1.dp, ColorGold.copy(alpha=0.5f), RoundedCornerShape(8.dp)).clickable { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)) }, contentAlignment = Alignment.Center) {
-                                        Image(bitmap = app.icon.toBitmap(100, 100).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(40.dp))
-                                    }
-                                } else {
-                                    Box(modifier = Modifier.size(56.dp).background(ColorCardBg.copy(alpha = 0.3f), RoundedCornerShape(8.dp)))
-                                }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // НИЖНЯЯ ЧАСТЬ - Сетка приложений (4x2)
+        val appsInfo = remember(selectedPackages) { getAppsByPackages(context, selectedPackages) }
+        
+        Column(
+            modifier = Modifier.fillMaxWidth().background(ColorCardBg.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            for (row in 0 until 2) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    for (col in 0 until 4) {
+                        val index = row * 4 + col
+                        val app = if (index < appsInfo.size) appsInfo[index] else null
+
+                        if (app != null) {
+                            // Если приложение выбрано
+                            Box(
+                                modifier = Modifier.size(64.dp).background(Color(0xFF1E1814), RoundedCornerShape(12.dp)).border(1.dp, ColorGold, RoundedCornerShape(12.dp))
+                                    .clickable { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(bitmap = app.icon.toBitmap(120, 120).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(48.dp))
+                            }
+                        } else {
+                            // Если пусто - кнопка добавления
+                            Box(
+                                modifier = Modifier.size(64.dp).background(Color(0xFF1E1814), RoundedCornerShape(12.dp)).border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .clickable { appToReplaceIndex = -1; showAppPicker = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+", color = ColorGold, fontSize = 28.sp)
                             }
                         }
                     }
