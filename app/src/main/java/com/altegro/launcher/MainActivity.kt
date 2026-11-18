@@ -96,6 +96,7 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
+// УЛУЧШЕННАЯ ФУНКЦИЯ: Теперь видит все приложения и убирает дубликаты
 fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN, null)
@@ -105,11 +106,16 @@ fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     return resolveInfoList.mapNotNull { resolveInfo ->
         try {
             val pkg = resolveInfo.activityInfo.packageName
+            // Исключаем наш собственный лаунчер из списка выбора
+            if (pkg == context.packageName) return@mapNotNull null
+            
             val name = resolveInfo.loadLabel(pm).toString()
             val icon = resolveInfo.loadIcon(pm)
             SimpleAppInfo(name, pkg, icon)
         } catch (e: Exception) { null }
-    }.sortedBy { it.name }
+    }
+    .distinctBy { it.packageName } // Убираем дубликаты (если у приложения несколько активностей)
+    .sortedBy { it.name.lowercase() } // Сортируем по алфавиту
 }
 
 fun getAppsByPackages(context: Context, packages: List<String>): List<SimpleAppInfo?> {
@@ -228,7 +234,6 @@ fun ScreenOne() {
 
     Row(modifier = Modifier.fillMaxSize().background(ColorBg).padding(16.dp)) {
         
-        // ЛЕВАЯ КОЛОНКА - КВЕСТЫ
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) { QuestListCard("Глобальные", tasks.filter { it.category == "Major" && !it.isDone }, { currentCategory = "Major"; showAddDialog = true }, onTaskDone) }
             Box(modifier = Modifier.weight(1.2f).fillMaxWidth()) { QuestListCard("Средние", tasks.filter { it.category == "Medium" && !it.isDone }, { currentCategory = "Medium"; showAddDialog = true }, onTaskDone) }
@@ -241,15 +246,12 @@ fun ScreenOne() {
         
         Spacer(modifier = Modifier.width(16.dp))
         
-        // ПРАВАЯ КОЛОНКА - ВРЕМЯ, ПОГОДА И ПРИЛОЖЕНИЯ
         Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
             ClockWidget()
             Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
             
-            // ВОТ ЭТОТ SPACER ПРИЖИМАЕТ ВСЕ ПРИЛОЖЕНИЯ ВНИЗ
             Spacer(modifier = Modifier.weight(1f))
             
-            // Сетка приложений (2 колонки на 4 строки, увеличенные)
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 for (row in 0 until 4) {
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -259,10 +261,7 @@ fun ScreenOne() {
 
                             if (app != null) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(70.dp)
-                                        .background(Color(0xFF1E1814), RoundedCornerShape(14.dp))
-                                        .border(1.dp, ColorGold, RoundedCornerShape(14.dp))
+                                    modifier = Modifier.size(70.dp).background(Color(0xFF1E1814), RoundedCornerShape(14.dp)).border(1.dp, ColorGold, RoundedCornerShape(14.dp))
                                         .clickable { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)) },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -270,10 +269,7 @@ fun ScreenOne() {
                                 }
                             } else {
                                 Box(
-                                    modifier = Modifier
-                                        .size(70.dp)
-                                        .background(Color(0xFF1E1814), RoundedCornerShape(14.dp))
-                                        .border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                                    modifier = Modifier.size(70.dp).background(Color(0xFF1E1814), RoundedCornerShape(14.dp)).border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
                                         .clickable { appToReplaceIndex = -1; showAppPicker = true },
                                     contentAlignment = Alignment.Center
                                 ) {
