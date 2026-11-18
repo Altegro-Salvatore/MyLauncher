@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     
+    <!-- ЭТОТ БЛОК ОТКРЫВАЕТ ДОСТУП КО ВСЕМ ПРИЛОЖЕНИЯМ -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:label="GameLauncher"
         android:theme="@android:style/Theme.Material.NoActionBar">
