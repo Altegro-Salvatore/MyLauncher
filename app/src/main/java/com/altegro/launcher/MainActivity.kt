@@ -2,7 +2,6 @@ package com.altegro.launcher
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -57,7 +56,6 @@ val ColorMp = Color(0xFF5BC0DE)
 data class TaskItem(val id: String, val title: String, val category: String, val isDone: Boolean = false)
 data class SimpleAppInfo(val name: String, val packageName: String, val icon: Drawable)
 
-// Сохранение и загрузка задач
 fun saveTasks(context: Context, tasks: List<TaskItem>) {
     val jsonArray = JSONArray()
     tasks.forEach {
@@ -81,7 +79,6 @@ fun loadTasks(context: Context): List<TaskItem> {
     return list
 }
 
-// Сохранение и загрузка выбранных приложений
 fun saveAppSelection(context: Context, packages: List<String>) {
     val jsonArray = JSONArray(packages)
     context.getSharedPreferences("launcher_prefs", Context.MODE_PRIVATE).edit().putString("selected_apps", jsonArray.toString()).apply()
@@ -99,7 +96,6 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
-// Получить ВСЕ установленные приложения (для меню выбора)
 fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN, null)
@@ -116,7 +112,6 @@ fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     }.sortedBy { it.name }
 }
 
-// Получить инфу о конкретных приложениях по их пакетам
 fun getAppsByPackages(context: Context, packages: List<String>): List<SimpleAppInfo?> {
     val pm = context.packageManager
     return packages.map { pkg ->
@@ -159,7 +154,6 @@ fun ScreenOne() {
     val context = LocalContext.current
     var tasks by remember { mutableStateOf(loadTasks(context)) }
     
-    // Состояние для приложений
     var selectedPackages by remember { mutableStateOf(loadAppSelection(context)) }
     var showAppPicker by remember { mutableStateOf(false) }
     var appToReplaceIndex by remember { mutableStateOf(-1) }
@@ -170,7 +164,6 @@ fun ScreenOne() {
     var inputTask by remember { mutableStateOf("") }
     var currentCategory by remember { mutableStateOf("Major") }
 
-    // Меню выбора приложений
     if (showAppPicker) {
         AlertDialog(
             onDismissRequest = { showAppPicker = false }, containerColor = ColorCardBg,
@@ -182,16 +175,11 @@ fun ScreenOne() {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.padding(8.dp).clickable {
                                 val newList = selectedPackages.toMutableList()
-                                if (appToReplaceIndex == -1) { // Добавляем новое
-                                    if (newList.size < 8) {
-                                        newList.add(app.packageName)
-                                    }
-                                } else { // Заменяем существующее
-                                    if (appToReplaceIndex < newList.size) {
-                                        newList[appToReplaceIndex] = app.packageName
-                                    } else {
-                                        newList.add(app.packageName)
-                                    }
+                                if (appToReplaceIndex == -1) { 
+                                    if (newList.size < 8) newList.add(app.packageName)
+                                } else { 
+                                    if (appToReplaceIndex < newList.size) newList[appToReplaceIndex] = app.packageName
+                                    else newList.add(app.packageName)
                                 }
                                 selectedPackages = newList
                                 saveAppSelection(context, newList)
@@ -235,64 +223,62 @@ fun ScreenOne() {
     }
 
     val onTaskDone: (TaskItem) -> Unit = { task -> tasks = tasks.map { if (it.id == task.id) it.copy(isDone = true) else it }; saveTasks(context, tasks) }
+    
+    val appsInfo = remember(selectedPackages) { getAppsByPackages(context, selectedPackages) }
 
-    // Основной макет: Верхняя часть (Квесты + Время) и Нижняя часть (Приложения)
-    Column(modifier = Modifier.fillMaxSize().background(ColorBg).padding(16.dp)) {
+    Row(modifier = Modifier.fillMaxSize().background(ColorBg).padding(16.dp)) {
         
-        // ВЕРХНЯЯ ЧАСТЬ
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            // Левая колонка - Квесты
-            Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) { QuestListCard("Глобальные", tasks.filter { it.category == "Major" && !it.isDone }, { currentCategory = "Major"; showAddDialog = true }, onTaskDone) }
-                Box(modifier = Modifier.weight(1.2f).fillMaxWidth()) { QuestListCard("Средние", tasks.filter { it.category == "Medium" && !it.isDone }, { currentCategory = "Medium"; showAddDialog = true }, onTaskDone) }
-                Box(modifier = Modifier.weight(2f).fillMaxWidth()) { QuestListCard("Мелкие", tasks.filter { it.category == "Minor" && !it.isDone }, { currentCategory = "Minor"; showAddDialog = true }, onTaskDone) }
-                
-                Button(onClick = { showHistoryDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ColorCardBg)) {
-                    Text("История квестов", color = ColorGold, fontFamily = FontFamily.Serif)
-                }
-            }
+        // ЛЕВАЯ КОЛОНКА - КВЕСТЫ
+        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) { QuestListCard("Глобальные", tasks.filter { it.category == "Major" && !it.isDone }, { currentCategory = "Major"; showAddDialog = true }, onTaskDone) }
+            Box(modifier = Modifier.weight(1.2f).fillMaxWidth()) { QuestListCard("Средние", tasks.filter { it.category == "Medium" && !it.isDone }, { currentCategory = "Medium"; showAddDialog = true }, onTaskDone) }
+            Box(modifier = Modifier.weight(2f).fillMaxWidth()) { QuestListCard("Мелкие", tasks.filter { it.category == "Minor" && !it.isDone }, { currentCategory = "Minor"; showAddDialog = true }, onTaskDone) }
             
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            // Правая колонка - Время и погода
-            Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
-                ClockWidget()
-                Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
+            Button(onClick = { showHistoryDialog = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ColorCardBg)) {
+                Text("История квестов", color = ColorGold, fontFamily = FontFamily.Serif)
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // НИЖНЯЯ ЧАСТЬ - Сетка приложений (4x2)
-        val appsInfo = remember(selectedPackages) { getAppsByPackages(context, selectedPackages) }
         
-        Column(
-            modifier = Modifier.fillMaxWidth().background(ColorCardBg.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            for (row in 0 until 2) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    for (col in 0 until 4) {
-                        val index = row * 4 + col
-                        val app = if (index < appsInfo.size) appsInfo[index] else null
+        // Отступ между колонками (такой же, как отступ от края экрана - 16dp)
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        // ПРАВАЯ КОЛОНКА - ВРЕМЯ, ПОГОДА, ПРИЛОЖЕНИЯ
+        Column(modifier = Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.End) {
+            ClockWidget()
+            Text("25°", fontSize = 32.sp, fontFamily = FontFamily.Serif, color = ColorParchment, modifier = Modifier.padding(vertical = 12.dp))
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Сетка приложений (2 колонки на 4 строки, увеличенные)
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                for (row in 0 until 4) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        for (col in 0 until 2) {
+                            val index = row * 2 + col
+                            val app = if (index < appsInfo.size) appsInfo[index] else null
 
-                        if (app != null) {
-                            // Если приложение выбрано
-                            Box(
-                                modifier = Modifier.size(64.dp).background(Color(0xFF1E1814), RoundedCornerShape(12.dp)).border(1.dp, ColorGold, RoundedCornerShape(12.dp))
-                                    .clickable { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(bitmap = app.icon.toBitmap(120, 120).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(48.dp))
-                            }
-                        } else {
-                            // Если пусто - кнопка добавления
-                            Box(
-                                modifier = Modifier.size(64.dp).background(Color(0xFF1E1814), RoundedCornerShape(12.dp)).border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                    .clickable { appToReplaceIndex = -1; showAppPicker = true },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("+", color = ColorGold, fontSize = 28.sp)
+                            if (app != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(70.dp) // УВЕЛИЧИЛИ РАЗМЕР С 56 ДО 70
+                                        .background(Color(0xFF1E1814), RoundedCornerShape(14.dp))
+                                        .border(1.dp, ColorGold, RoundedCornerShape(14.dp))
+                                        .clickable { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Image(bitmap = app.icon.toBitmap(140, 140).asImageBitmap(), contentDescription = app.name, modifier = Modifier.size(52.dp))
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(70.dp) // УВЕЛИЧИЛИ РАЗМЕР С 56 ДО 70
+                                        .background(Color(0xFF1E1814), RoundedCornerShape(14.dp))
+                                        .border(1.dp, ColorGold.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+                                        .clickable { appToReplaceIndex = -1; showAppPicker = true },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("+", color = ColorGold, fontSize = 32.sp)
+                                }
                             }
                         }
                     }
