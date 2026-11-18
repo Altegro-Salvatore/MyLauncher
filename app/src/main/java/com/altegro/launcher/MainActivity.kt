@@ -97,17 +97,17 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
-// ЖЕЛЕЗОБЕТОННЫЙ ПОИСК ВСЕХ ПРИЛОЖЕНИЙ
+// АБСОЛЮТНО ВСЕ ПРИЛОЖЕНИЯ
 fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     val pm = context.packageManager
-    // Получаем абсолютно все установленные пакеты
+    // Получаем вообще все пакеты в системе
     val installedPackages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
     
     return installedPackages.mapNotNull { appInfo ->
-        // Проверяем, можно ли это приложение запустить (есть ли у него иконка на рабочем столе)
+        // Проверяем, есть ли у приложения интерфейс (иконка)
         val launchIntent = pm.getLaunchIntentForPackage(appInfo.packageName)
         
-        // Исключаем наш собственный лаунчер
+        // Пропускаем наш лаунчер
         if (launchIntent != null && appInfo.packageName != context.packageName) {
             try {
                 val name = pm.getApplicationLabel(appInfo).toString()
@@ -120,8 +120,8 @@ fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
             null
         }
     }
-    .distinctBy { it.packageName } // Убираем дубликаты
-    .sortedBy { it.name.lowercase() } // Сортируем по алфавиту
+    .distinctBy { it.packageName }
+    .sortedBy { it.name.lowercase() }
 }
 
 fun getAppsByPackages(context: Context, packages: List<String>): List<SimpleAppInfo?> {
