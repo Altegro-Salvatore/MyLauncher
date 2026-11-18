@@ -2,6 +2,7 @@ package com.altegro.launcher
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -96,25 +97,30 @@ fun loadAppSelection(context: Context): List<String> {
     return list
 }
 
-// УЛУЧШЕННАЯ ФУНКЦИЯ: Теперь видит все приложения и убирает дубликаты
+// ЖЕЛЕЗОБЕТОННЫЙ ПОИСК ВСЕХ ПРИЛОЖЕНИЙ
 fun getAllInstalledApps(context: Context): List<SimpleAppInfo> {
     val pm = context.packageManager
-    val intent = Intent(Intent.ACTION_MAIN, null)
-    intent.addCategory(Intent.CATEGORY_LAUNCHER)
-    val resolveInfoList = pm.queryIntentActivities(intent, 0)
+    // Получаем абсолютно все установленные пакеты
+    val installedPackages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
     
-    return resolveInfoList.mapNotNull { resolveInfo ->
-        try {
-            val pkg = resolveInfo.activityInfo.packageName
-            // Исключаем наш собственный лаунчер из списка выбора
-            if (pkg == context.packageName) return@mapNotNull null
-            
-            val name = resolveInfo.loadLabel(pm).toString()
-            val icon = resolveInfo.loadIcon(pm)
-            SimpleAppInfo(name, pkg, icon)
-        } catch (e: Exception) { null }
+    return installedPackages.mapNotNull { appInfo ->
+        // Проверяем, можно ли это приложение запустить (есть ли у него иконка на рабочем столе)
+        val launchIntent = pm.getLaunchIntentForPackage(appInfo.packageName)
+        
+        // Исключаем наш собственный лаунчер
+        if (launchIntent != null && appInfo.packageName != context.packageName) {
+            try {
+                val name = pm.getApplicationLabel(appInfo).toString()
+                val icon = pm.getApplicationIcon(appInfo.packageName)
+                SimpleAppInfo(name, appInfo.packageName, icon)
+            } catch (e: Exception) {
+                null
+            }
+        } else {
+            null
+        }
     }
-    .distinctBy { it.packageName } // Убираем дубликаты (если у приложения несколько активностей)
+    .distinctBy { it.packageName } // Убираем дубликаты
     .sortedBy { it.name.lowercase() } // Сортируем по алфавиту
 }
 
