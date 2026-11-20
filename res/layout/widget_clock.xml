@@ -1,0 +1,5 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_bg" android:orientation="vertical" android:gravity="center" android:padding="12dp">
+    <TextClock android:id="@+id/text_clock" android:layout_width="wrap_content" android:layout_height="wrap_content" android:format12Hour="HH:mm" android:format24Hour="HH:mm" android:textColor="#E8D5B5" android:textSize="42sp" android:textStyle="bold" android:fontFamily="serif" />
+</LinearLayout>
